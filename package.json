@@ -1,0 +1,25 @@
+{
+  "name": "pi-extension-wt",
+  "version": "0.1.0",
+  "description": "Pi extension that switches pi session to git worktree (like cd but for worktrees)",
+  "main": "index.ts",
+  "type": "module",
+  "keywords": [
+    "pi-extension",
+    "worktree",
+    "git"
+  ],
+  "author": "buihongduc132",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
