@@ -186,7 +186,7 @@ export async function forkSessionToWorktree(
   }
 
   await ctx.switchSession(targetSessionPath, {
-    withSession: (nextCtx) => {
+    withSession: async (nextCtx) => {
       nextCtx.ui.setStatus(STATUS_KEY, `wt ${path.basename(worktreePath)}`);
       nextCtx.ui.notify(`wt → ${path.basename(worktreePath)}`, "info");
     },
@@ -266,25 +266,15 @@ async function selectWorktree(
 // ─── Extension Entry ─────────────────────────────────────────────────────────
 
 export default function wtExtension(pi: ExtensionAPI): void {
-  // Fallback hook: if cwd is gone, switch to main worktree
+  // Fallback hook: if cwd is gone, surface a warning. Event handlers receive
+  // ExtensionContext (base), which does NOT expose switchSession — session
+  // switches are only available from ExtensionCommandContext (command handlers).
+  // Auto-switching from a session_start event is impossible per the API
+  // contract; just notify + set status so the user can run /wt to switch.
   pi.on("session_start", (_event, ctx) => {
     if (isCwdGone(ctx.cwd)) {
-      const main = findMainWorktree(ctx.cwd);
-      if (main && fs.existsSync(main)) {
-        ctx.ui.notify(`wt: worktree gone (${ctx.cwd}), falling back to main`, "warning");
-
-        const targetSession = SessionManager.create(main).getSessionFile();
-        if (targetSession) {
-          ctx.switchSession(targetSession, {
-            withSession: (nextCtx) => {
-              nextCtx.ui.setStatus(STATUS_KEY, "wt main");
-              nextCtx.ui.notify(`wt → main (${main})`, "info");
-            },
-          });
-        }
-      } else {
-        ctx.ui.setStatus(STATUS_KEY, "wt BROKEN (cwd gone, no main found)");
-      }
+      ctx.ui.notify(`wt: cwd gone (${ctx.cwd}) — run /wt to switch`, "warning");
+      ctx.ui.setStatus(STATUS_KEY, "wt: ⚠ cwd gone — run /wt to switch");
     } else {
       ctx.ui.setStatus(STATUS_KEY, `wt ${path.basename(ctx.cwd)}`);
     }
