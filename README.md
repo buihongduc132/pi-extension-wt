@@ -10,7 +10,7 @@ Pi extension that switches pi session to git worktree (like cd but for worktrees
 - **Sort toggle**: Press 's' key in TUI picker to cycle sort order, persists back to config
 - **Session fork**: follows cd plugin pattern (`ctx.switchSession()`, `SessionManager.forkFrom()`)
 - **TUI picker**: `/wt` opens ranked picker via `ctx.ui.select()`
-- **Fallback**: `session_start` hook — if `ctx.cwd` no longer exists, fallback to main worktree
+- **Fallback**: `session_start` hook saves main worktree path to state; `/wt` command auto-switches to main when cwd is gone
 - **WebUI compatible**: `ctx.ui.select()` works in RPC mode
 - **NO create/remove**: use `git worktree add` manually (YAGNI)
 
@@ -51,7 +51,7 @@ Or add to `settings.json`:
 
 ## Fallback
 
-If the current worktree is deleted while pi is running, the `session_start` hook detects missing `ctx.cwd`, runs `git rev-parse --show-toplevel` to find the main worktree, and switches session to main with notification "worktree gone, fell back to main".
+When the session starts, the `session_start` hook saves the main worktree path to a state file (`~/.pi/agent/state/main-worktree.json`). If the current worktree is deleted while pi is running, running `/wt` (with no arguments) detects the missing `cwd` via `isCwdGone()`, reads the saved main worktree path from state via `findMainWorktree()`, and auto-switches session to main with notification "wt: cwd gone, falling back to main". This works because `switchSession` is only available from `ExtensionCommandContext` (command handlers), not from `ExtensionContext` (event handlers like `session_start`).
 
 ## Pattern
 

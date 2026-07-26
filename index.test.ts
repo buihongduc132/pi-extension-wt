@@ -140,8 +140,8 @@ branch refs/heads/feature
       expect(gone).toBe(true);
     });
     
-    it('should find main worktree via git rev-parse --show-toplevel', async () => {
-      // Arrange - create a real git repo with worktree
+    it('should find main worktree via state file when cwd is deleted', async () => {
+      // Arrange — create a real git repo with worktree, then delete the worktree
       const repoPath = join(testDir, 'test-repo');
       mkdirSync(repoPath, { recursive: true });
       execSync('git init -b main', { cwd: repoPath });
@@ -149,13 +149,31 @@ branch refs/heads/feature
       execSync('git config user.name Test', { cwd: repoPath });
       writeFileSync(join(repoPath, 'README.md'), '# Test');
       execSync('git add . && git commit -m "init"', { cwd: repoPath });
-      
+
+      // Create a worktree
+      const wtPath = join(repoPath, '.worktrees', 'wt-feature');
+      execSync(`git worktree add ${wtPath} -b feature`, { cwd: repoPath });
+
+      // Save main worktree to state file (simulating what session_start does)
+      const stateDir = join(testDir, 'state');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, 'main-worktree.json'), JSON.stringify({ mainWorktree: repoPath }));
+
+      // Set PI_CODING_AGENT_DIR so getAgentDir() returns testDir
+      process.env.PI_CODING_AGENT_DIR = testDir;
+
+      // Delete the worktree (simulating cwd gone)
+      rmSync(wtPath, { recursive: true, force: true });
+
       // Act
-      const { findMainWorktree } = await import('./index.js');
-      const main = findMainWorktree(repoPath);
-      
-      // Assert
+      const { findMainWorktree, isCwdGone } = await import('./index.js');
+      expect(isCwdGone(wtPath)).toBe(true);
+      const main = findMainWorktree(wtPath);
+
+      // Assert — should find main via state file
       expect(main).toBe(repoPath);
+
+      delete process.env.PI_CODING_AGENT_DIR;
     });
   });
   

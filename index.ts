@@ -144,18 +144,45 @@ export function isCwdGone(cwd: string): boolean {
 
 export function findMainWorktree(cwd: string): string | undefined {
   try {
-    const output = execSync("git rev-parse --show-toplevel 2>/dev/null || git rev-parse --git-common-dir 2>/dev/null", {
-      cwd: fs.existsSync(cwd) ? cwd : os.homedir(),
-      encoding: "utf8",
-      timeout: 5000,
-    }).trim();
+    // If cwd exists, use it directly
+    if (fs.existsSync(cwd)) {
+      const output = execSync("git rev-parse --show-toplevel 2>/dev/null || git rev-parse --git-common-dir 2>/dev/null", {
+        cwd,
+        encoding: "utf8",
+        timeout: 5000,
+      }).trim();
 
-    // git-common-dir points to .git, parent is the main worktree root
-    if (output.endsWith("/.git") || output === ".git") {
-      return path.dirname(output === ".git" ? path.join(cwd, output) : output);
+      // git-common-dir points to .git, parent is the main worktree root
+      if (output.endsWith("/.git") || output === ".git") {
+        return path.dirname(output === ".git" ? path.join(cwd, output) : output);
+      }
+
+      return output || undefined;
     }
 
-    return output || undefined;
+    // If cwd is deleted, try to find main worktree from state file
+    const stateFile = path.join(getAgentDir(), "state", "main-worktree.json");
+    if (fs.existsSync(stateFile)) {
+      try {
+        const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+        if (state.mainWorktree && fs.existsSync(state.mainWorktree)) {
+          return state.mainWorktree;
+        }
+      } catch {
+        // State file corrupt, continue
+      }
+    }
+
+    // Fallback: try parent directories
+    let dir = path.dirname(cwd);
+    while (dir !== path.dirname(dir)) {
+      if (fs.existsSync(path.join(dir, ".git"))) {
+        return dir;
+      }
+      dir = path.dirname(dir);
+    }
+
+    return undefined;
   } catch {
     return undefined;
   }
@@ -279,6 +306,22 @@ export default function wtExtension(pi: ExtensionAPI): void {
       ctx.ui.notify(`wt: cwd gone (${ctx.cwd}) — run /wt to switch`, "warning");
       ctx.ui.setStatus(STATUS_KEY, "wt: ⚠ cwd gone — run /wt to switch");
     } else {
+      // Save main worktree path to state for fallback recovery
+      try {
+        const mainPath = findMainWorktree(ctx.cwd);
+        if (mainPath) {
+          const stateDir = path.join(getAgentDir(), "state");
+          if (!fs.existsSync(stateDir)) {
+            fs.mkdirSync(stateDir, { recursive: true });
+          }
+          fs.writeFileSync(
+            path.join(stateDir, "main-worktree.json"),
+            JSON.stringify({ mainWorktree: mainPath, savedAt: new Date().toISOString() }),
+          );
+        }
+      } catch {
+        // Non-fatal: state save failed
+      }
       ctx.ui.setStatus(STATUS_KEY, `wt ${path.basename(ctx.cwd)}`);
     }
   });

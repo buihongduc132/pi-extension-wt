@@ -32,7 +32,7 @@ describe('pi-extension-wt — session behavior', () => {
     expect(isCwdGone('/tmp')).toBe(false);
   });
   
-  it('FALLBACK: findMainWorktree returns repo root', async () => {
+  it('FALLBACK: findMainWorktree returns repo root when cwd exists', async () => {
     const { findMainWorktree } = await import('./index.js');
     
     // Use pi-plugins repo (has worktrees)
@@ -40,6 +40,44 @@ describe('pi-extension-wt — session behavior', () => {
     const main = findMainWorktree(repoRoot);
     
     expect(main).toBe(repoRoot);
+  });
+
+  it('FALLBACK: findMainWorktree recovers from state file when cwd deleted', async () => {
+    // Arrange: create a real git repo with a worktree, then delete the worktree
+    const { execSync } = await import('node:child_process');
+    const { writeFileSync } = await import('node:fs');
+    const repoPath = join(testDir, 'test-repo');
+    mkdirSync(repoPath, { recursive: true });
+    execSync('git init -b main', { cwd: repoPath });
+    execSync('git config user.email test@test.com', { cwd: repoPath });
+    execSync('git config user.name Test', { cwd: repoPath });
+    writeFileSync(join(repoPath, 'README.md'), '# Test');
+    execSync('git add . && git commit -m "init"', { cwd: repoPath });
+
+    // Create a worktree
+    const wtPath = join(repoPath, '.worktrees', 'wt-feature');
+    execSync(`git worktree add ${wtPath} -b feature`, { cwd: repoPath });
+
+    // Save main worktree to state file (simulating what session_start does)
+    const stateDir = join(testDir, '.pi', 'agent', 'state');
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(join(stateDir, 'main-worktree.json'), JSON.stringify({ mainWorktree: repoPath }));
+
+    // Set PI_CODING_AGENT_DIR so getAgentDir() returns testDir/.pi/agent
+    process.env.PI_CODING_AGENT_DIR = join(testDir, '.pi', 'agent');
+
+    // Delete the worktree (simulating cwd gone)
+    rmSync(wtPath, { recursive: true, force: true });
+
+    // Act
+    const { findMainWorktree, isCwdGone } = await import('./index.js');
+    expect(isCwdGone(wtPath)).toBe(true);
+    const main = findMainWorktree(wtPath);
+
+    // Assert — should find main via state file
+    expect(main).toBe(repoPath);
+
+    delete process.env.PI_CODING_AGENT_DIR;
   });
   
   it('SORT: persistSort writes to config file', async () => {
