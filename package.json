@@ -4,6 +4,9 @@
   "description": "Pi extension that switches pi session to git worktree (like cd but for worktrees)",
   "main": "index.ts",
   "type": "module",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
   "keywords": [
     "pi-extension",
     "worktree",
