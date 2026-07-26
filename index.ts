@@ -37,6 +37,9 @@ function getAgentDir(): string {
 function getConfigPath(): string {
   const envPath = process.env.PI_WT_CONFIG_PATH?.trim();
   if (envPath) return expandTilde(envPath);
+  // Local config takes precedence over global
+  const localPath = path.join(process.cwd(), ".pi", "wt.json");
+  if (fs.existsSync(localPath)) return localPath;
   return path.join(getAgentDir(), "wt.json");
 }
 
@@ -318,6 +321,18 @@ export default function wtExtension(pi: ExtensionAPI): void {
       }
 
       if (!trimmed) {
+        // Auto-fallback: if cwd is gone, switch to main worktree
+        if (isCwdGone(ctx.cwd)) {
+          const mainPath = findMainWorktree(ctx.cwd);
+          if (mainPath && fs.existsSync(mainPath)) {
+            ctx.ui.notify(`wt: cwd gone, falling back to main`, "warning");
+            await forkSessionToWorktree(ctx, mainPath);
+            return;
+          }
+          ctx.ui.notify("wt: cwd gone and main worktree not found", "error");
+          return;
+        }
+
         const worktrees = getWorktrees(ctx.cwd);
         if (worktrees.length === 0) {
           ctx.ui.notify("No worktrees found", "info");

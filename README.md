@@ -7,7 +7,7 @@ Pi extension that switches pi session to git worktree (like cd but for worktrees
 - **Worktree discovery**: `git worktree list` (authoritative)
 - **Config**: `~/.pi/agent/wt.json` (or `.pi/wt.json`), ENV override `PI_WT_CONFIG_PATH`
 - **Schema**: `{ "sort": "created" | "updated" }`, default "created"
-- **Sort toggle**: TUI column header click OR key cycle, persists back to config
+- **Sort toggle**: Press 's' key in TUI picker to cycle sort order, persists back to config
 - **Session fork**: follows cd plugin pattern (`ctx.switchSession()`, `SessionManager.forkFrom()`)
 - **TUI picker**: `/wt` opens ranked picker via `ctx.ui.select()`
 - **Fallback**: `session_start` hook — if `ctx.cwd` no longer exists, fallback to main worktree

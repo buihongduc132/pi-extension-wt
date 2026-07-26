@@ -100,6 +100,31 @@ branch refs/heads/feature
       
       delete process.env.PI_WT_CONFIG_PATH;
     });
+
+    it('should read from local .pi/wt.json when no ENV override', async () => {
+      // Arrange — create a fake project dir with .pi/wt.json
+      const projectDir = join(testDir, 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const localConfigDir = join(projectDir, '.pi');
+      mkdirSync(localConfigDir, { recursive: true });
+      writeFileSync(join(localConfigDir, 'wt.json'), JSON.stringify({ sort: 'updated' }));
+
+      // Mock process.cwd() (chdir not supported in vitest workers)
+      delete process.env.PI_WT_CONFIG_PATH;
+      const cwdSpy = vi.spyOn(process, 'cwd');
+      cwdSpy.mockReturnValue(projectDir);
+
+      // Act — force re-import by clearing cache
+      vi.resetModules();
+      const { loadSort } = await import('./index.js');
+      const sort = loadSort();
+
+      // Assert
+      expect(sort).toBe('updated');
+
+      // Cleanup
+      cwdSpy.mockRestore();
+    });
   });
   
   describe('Fallback when cwd deleted', () => {
