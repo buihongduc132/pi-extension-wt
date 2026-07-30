@@ -5,7 +5,9 @@
   "main": "index.ts",
   "type": "module",
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "keywords": [
     "pi-extension",
@@ -23,6 +25,8 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   }
