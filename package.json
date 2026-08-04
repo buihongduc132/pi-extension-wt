@@ -9,25 +9,44 @@
       "./index.ts"
     ]
   },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "pi-extension",
+    "pi",
     "worktree",
-    "git"
+    "git",
+    "session",
+    "cd"
   ],
   "author": "buihongduc132",
   "license": "MIT",
+  "homepage": "https://github.com/buihongduc132/pi-extension-wt",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buihongduc132/pi-extension-wt.git"
+  },
+  "bugs": {
+    "url": "https://github.com/buihongduc132/pi-extension-wt/issues"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.83.0",
-    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^3.2.7"
   }
 }

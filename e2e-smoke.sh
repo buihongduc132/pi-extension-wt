@@ -17,15 +17,19 @@ echo "=== E2E: pi-extension-wt ==="
 echo "Test dir: $TEST_DIR"
 echo ""
 
-# Test 1: Extension loads without errors
+# Test 1: Extension loads without errors (requires pi binary)
 echo "[1/5] Extension loads without errors..."
 cd "$TEST_DIR"
-LOAD_OUTPUT=$(timeout 120 pi -p -ne "echo loaded" 2>&1 || true)
-if echo "$LOAD_OUTPUT" | grep -q "Failed to load extension.*pi-extension-wt"; then
-  echo "  FAIL: wt extension failed to load"
-  EXIT_CODE=1
+if command -v pi >/dev/null 2>&1; then
+  LOAD_OUTPUT=$(timeout 120 pi -p -ne "echo loaded" 2>&1 || true)
+  if echo "$LOAD_OUTPUT" | grep -q "Failed to load extension.*pi-extension-wt"; then
+    echo "  FAIL: wt extension failed to load"
+    EXIT_CODE=1
+  else
+    echo "  PASS: no load errors for wt"
+  fi
 else
-  echo "  PASS: no load errors for wt"
+  echo "  SKIP: pi binary not available (CI environment)"
 fi
 
 # Test 2: git worktree list parsing
