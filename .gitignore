@@ -1,5 +1,15 @@
+# Pi agent runtime
+.pi/
+
+# Worktree isolation
 .worktrees/
+
+# Dependencies
 node_modules/
 
-# test coverage report (generated)
+# Test coverage (generated)
 coverage/
+
+# OS
+.DS_Store
+Thumbs.db

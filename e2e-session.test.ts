@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 
 /**
@@ -35,11 +36,18 @@ describe('pi-extension-wt — session behavior', () => {
   it('FALLBACK: findMainWorktree returns repo root when cwd exists', async () => {
     const { findMainWorktree } = await import('./index.js');
     
-    // Use pi-plugins repo (has worktrees)
-    const repoRoot = '~/projects/pi-plugins';
-    const main = findMainWorktree(repoRoot);
+    // Use a temp git repo (portable, no machine-specific paths)
+    const repoPath = join(testDir, 'fallback-repo');
+    mkdirSync(repoPath, { recursive: true });
+    execSync('git init -b main', { cwd: repoPath });
+    execSync('git config user.email test@test.com', { cwd: repoPath });
+    execSync('git config user.name Test', { cwd: repoPath });
+    writeFileSync(join(repoPath, 'README.md'), '# Test');
+    execSync('git add . && git commit -m "init"', { cwd: repoPath });
     
-    expect(main).toBe(repoRoot);
+    const main = findMainWorktree(repoPath);
+    
+    expect(main).toBe(repoPath);
   });
 
   it('FALLBACK: findMainWorktree recovers from state file when cwd deleted', async () => {
