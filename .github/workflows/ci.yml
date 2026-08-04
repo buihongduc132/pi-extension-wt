@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [22]
     steps:
       - uses: actions/checkout@v4
 
@@ -38,7 +38,6 @@ jobs:
           CI: true
 
       - name: Upload coverage artifact
-        if: matrix.node == 22
         uses: actions/upload-artifact@v4
         with:
           name: coverage-node${{ matrix.node }}
