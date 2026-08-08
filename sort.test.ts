@@ -3,12 +3,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-// ─── Mocks: pi-kit/store with real I/O ───────────────────────────────────────
+// ─── Mocks: pi-kit/store — sync factory, real I/O via top-level imports ──────
 
-vi.mock("pi-kit/store", async () => {
-  const fs = await import("node:fs");
-  const nodePath = await import("node:path");
-
+vi.mock("pi-kit/store", () => {
   class AtomicJsonStore<T extends { version: number }> {
     readonly path: string;
     private readonly schemaVersion: number;
@@ -32,7 +29,7 @@ vi.mock("pi-kit/store", async () => {
     }
 
     write(data: T): void {
-      const dir = nodePath.dirname(this.path);
+      const dir = path.dirname(this.path);
       fs.mkdirSync(dir, { recursive: true });
       const stamped = { ...data, version: this.schemaVersion };
       const tmpPath = this.path + ".tmp";

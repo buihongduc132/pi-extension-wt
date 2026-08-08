@@ -1,14 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-// ─── Mocks: pi-kit/store with real I/O (atomic temp+rename) ──────────────────
+// Dynamic imports avoid vitest TDZ with vi.mock hoisting
+const fs = await import("node:fs");
+const path = await import("node:path");
+const os = await import("node:os");
 
-vi.mock("pi-kit/store", async () => {
-  const fs = await import("node:fs");
-  const nodePath = await import("node:path");
+// ─── Mocks: pi-kit/store — sync factory, real I/O via dynamic imports ───────
+// Methods reference fs/path at CALL time (after module eval), not at
+// factory-definition time.
 
+vi.mock("pi-kit/store", () => {
   class AtomicJsonStore<T extends { version: number }> {
     readonly path: string;
     private readonly schemaVersion: number;
@@ -32,7 +33,7 @@ vi.mock("pi-kit/store", async () => {
     }
 
     write(data: T): void {
-      const dir = nodePath.dirname(this.path);
+      const dir = path.dirname(this.path);
       fs.mkdirSync(dir, { recursive: true });
       // Atomic write: temp file + rename, stamps schemaVersion on every write
       const stamped = { ...data, version: this.schemaVersion };
@@ -53,7 +54,6 @@ vi.mock("pi-kit/store", async () => {
   return { AtomicJsonStore };
 });
 
-// Mock pi-coding-agent SDK (not installed in dev env)
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   SessionManager: {
     forkFrom: vi.fn(),
