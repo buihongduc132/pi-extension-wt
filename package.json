@@ -1,6 +1,6 @@
 {
   "name": "pi-extension-wt",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "description": "Pi extension that switches pi session to git worktree (like cd but for worktrees)",
   "main": "index.ts",
   "type": "module",
