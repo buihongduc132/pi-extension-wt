@@ -3,51 +3,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-// ─── Mocks: pi-kit/store — sync factory, real I/O via top-level imports ──────
-
-vi.mock("pi-kit/store", () => {
-  class AtomicJsonStore<T extends { version: number }> {
-    readonly path: string;
-    private readonly schemaVersion: number;
-    private readonly defaultValue: T;
-
-    constructor(filePath: string, schemaVersion: number, defaultValue: T) {
-      this.path = filePath;
-      this.schemaVersion = schemaVersion;
-      this.defaultValue = defaultValue;
-    }
-
-    read(): T {
-      try {
-        if (fs.existsSync(this.path)) {
-          return JSON.parse(fs.readFileSync(this.path, "utf8")) as T;
-        }
-      } catch {
-        // fall through to default
-      }
-      return { ...this.defaultValue };
-    }
-
-    write(data: T): void {
-      const dir = path.dirname(this.path);
-      fs.mkdirSync(dir, { recursive: true });
-      const stamped = { ...data, version: this.schemaVersion };
-      const tmpPath = this.path + ".tmp";
-      fs.writeFileSync(tmpPath, JSON.stringify(stamped, null, 2));
-      fs.renameSync(tmpPath, this.path);
-    }
-
-    clear(): void {
-      try {
-        fs.unlinkSync(this.path);
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  return { AtomicJsonStore };
-});
+// pi-kit/store resolves to real node_modules/pi-kit/src/store.ts (git-sourced).
+// No mock needed — tests use tmpDir paths.
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   SessionManager: {
