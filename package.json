@@ -49,7 +49,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "dependencies": {
-    "pi-kit": "git+https://github.com/buihongduc132/pi-kit.git#v0.1.0"
+    "pi-kit": "git+https://github.com/buihongduc132/pi-kit.git#v0.1.1"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.83.0",
