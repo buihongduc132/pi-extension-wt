@@ -115,7 +115,7 @@ export function findMainWorktree(cwd: string): string | undefined {
       const output = execSync("git rev-parse --show-toplevel 2>/dev/null || git rev-parse --git-common-dir 2>/dev/null", {
         cwd,
         encoding: "utf8",
-        timeout: 5000,
+        timeout: 15000,
       }).trim();
 
       // git-common-dir points to .git, parent is the main worktree root
