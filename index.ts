@@ -20,9 +20,13 @@ export { getDefaultSort, parseSortArg, loadSort, persistSort };
 export { createConfigStore, createHistoryStore } from "./store.js";
 export type { Worktree, WtConfig, WtHistoryEntry, WtHistory } from "./store.js";
 
+import { createHistoryStore } from "./store.js";
+
 export { recordVisit, computeScore, MAX_HISTORY_ENTRIES } from "./history.js";
+import { recordVisit } from "./history.js";
 
 export { selectWorktree } from "./picker.js";
+import { selectWorktree } from "./picker.js";
 
 // ─── LD16: version sentinel logged at init ───────────────────────────────────
 
@@ -189,73 +193,6 @@ export async function forkSessionToWorktree(
   });
 }
 
-// ─── TUI Picker (legacy ctx.ui.select-based, used by /wt handler) ───────────
-
-async function selectWorktreeTUI(
-  ctx: ExtensionCommandContext,
-  worktrees: Worktree[],
-): Promise<Worktree | undefined> {
-  if (!ctx.hasUI || worktrees.length === 0) return undefined;
-
-  let sort = loadSort();
-
-  const buildItems = (): string[] => {
-    const sorted = [...worktrees].sort((a, b) => {
-      if (sort === "created") {
-        try {
-          return fs.statSync(b.path).birthtimeMs - fs.statSync(a.path).birthtimeMs;
-        } catch {
-          return 0;
-        }
-      }
-      try {
-        return fs.statSync(b.path).mtimeMs - fs.statSync(a.path).mtimeMs;
-      } catch {
-        return 0;
-      }
-    });
-
-    return sorted.map((wt, index) => {
-      const mainMark = wt.isMain ? "★" : "↳";
-      const name = path.basename(wt.path);
-      const branch = wt.branch;
-      return `${mainMark} ${name} — ${branch} [${index + 1}]`;
-    });
-  };
-
-  let items = buildItems();
-  let selected = await ctx.ui.select(`Worktrees (sort: ${sort}, press 's' to toggle)`, items);
-
-  // If user typed 's', toggle sort and re-prompt
-  while (selected === "s" || selected === "") {
-    sort = sort === "created" ? "updated" : "created";
-    persistSort(sort);
-    items = buildItems();
-    selected = await ctx.ui.select(`Worktrees (sort: ${sort}, press 's' to toggle)`, items);
-  }
-
-  if (!selected) return undefined;
-
-  const index = items.indexOf(selected);
-  if (index < 0) return undefined;
-
-  const sorted = [...worktrees].sort((a, b) => {
-    if (sort === "created") {
-      try {
-        return fs.statSync(b.path).birthtimeMs - fs.statSync(a.path).birthtimeMs;
-      } catch {
-        return 0;
-      }
-    }
-    try {
-      return fs.statSync(b.path).mtimeMs - fs.statSync(a.path).mtimeMs;
-    } catch {
-      return 0;
-    }
-  });
-
-  return sorted[index];
-}
 
 // ─── Extension Entry ─────────────────────────────────────────────────────────
 
@@ -351,8 +288,15 @@ export default function wtExtension(pi: ExtensionAPI): void {
           ctx.ui.notify("No worktrees found", "info");
           return;
         }
-        const selected = await selectWorktreeTUI(ctx, worktrees);
+
+        // LD10: Use pi-kit/picker rankedInputSelect (cap 24, 2-stage flow)
+        // LD5: record history visit on successful switch
+        const historyStore = createHistoryStore(getAgentDir());
+        const history = historyStore.read().history;
+        const selected = await selectWorktree(ctx.ui, worktrees, history);
         if (selected) {
+          // Record history visit (LD5)
+          recordVisit(historyStore, selected.path);
           await forkSessionToWorktree(ctx, selected.path);
         }
         return;
