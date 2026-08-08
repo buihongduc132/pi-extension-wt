@@ -1,79 +1,45 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { execSync } from "node:child_process";
 import { SessionManager, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { assertPiVersion, PI_KIT_VERSION } from "pi-kit";
+import { rankAndCap, matchScore } from "pi-kit/ranking";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Module re-exports ───────────────────────────────────────────────────────
 
-type Worktree = {
-  path: string;
-  branch: string;
-  commit: string;
-  isMain: boolean;
-};
+import type { Worktree } from "./store.js";
+import {
+  getDefaultSort,
+  parseSortArg,
+  loadSort,
+  persistSort,
+  getAgentDir,
+} from "./sort.js";
+export { getDefaultSort, parseSortArg, loadSort, persistSort };
 
-type WtConfig = {
-  sort?: "created" | "updated";
-};
+export { createConfigStore, createHistoryStore } from "./store.js";
+export type { Worktree, WtConfig, WtHistoryEntry, WtHistory } from "./store.js";
+
+export { recordVisit, computeScore, MAX_HISTORY_ENTRIES } from "./history.js";
+
+export { selectWorktree } from "./picker.js";
+
+// ─── LD16: version sentinel logged at init ───────────────────────────────────
+
+console.debug(`[wt] pi-kit@${PI_KIT_VERSION}`);
+
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const STATUS_KEY = "wt";
 
-// ─── Config Helpers ──────────────────────────────────────────────────────────
+// ─── Host pi version detection (LD8, LD13) ──────────────────────────────────
 
-function expandTilde(input: string): string {
-  if (input.startsWith("~/")) {
-    return path.join(os.homedir(), input.slice(2));
-  }
-  return input;
-}
-
-function getAgentDir(): string {
-  return process.env.PI_CODING_AGENT_DIR?.trim()
-    ? expandTilde(process.env.PI_CODING_AGENT_DIR!.trim())
-    : path.join(os.homedir(), ".pi", "agent");
-}
-
-function getConfigPath(): string {
-  const envPath = process.env.PI_WT_CONFIG_PATH?.trim();
-  if (envPath) return expandTilde(envPath);
-  // Local config takes precedence over global
-  const localPath = path.join(process.cwd(), ".pi", "wt.json");
-  if (fs.existsSync(localPath)) return localPath;
-  return path.join(getAgentDir(), "wt.json");
-}
-
-function readConfig(): WtConfig {
+function getHostPiVersion(): string {
   try {
-    if (!fs.existsSync(getConfigPath())) return {};
-    return JSON.parse(fs.readFileSync(getConfigPath(), "utf8")) as WtConfig;
+    return process.env.PI_VERSION?.trim() || "0.0.0";
   } catch {
-    return {};
+    return "0.0.0";
   }
-}
-
-function writeConfig(config: WtConfig): void {
-  try {
-    const configPath = getConfigPath();
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-  } catch {
-    // Config persistence is best-effort
-  }
-}
-
-export function getDefaultSort(): "created" | "updated" {
-  return "created";
-}
-
-export function loadSort(): "created" | "updated" {
-  return readConfig().sort || getDefaultSort();
-}
-
-export function persistSort(sort: "created" | "updated"): void {
-  const config = readConfig();
-  config.sort = sort;
-  writeConfig(config);
 }
 
 // ─── Worktree Parsing ────────────────────────────────────────────────────────
@@ -223,9 +189,9 @@ export async function forkSessionToWorktree(
   });
 }
 
-// ─── TUI Picker ──────────────────────────────────────────────────────────────
+// ─── TUI Picker (legacy ctx.ui.select-based, used by /wt handler) ───────────
 
-async function selectWorktree(
+async function selectWorktreeTUI(
   ctx: ExtensionCommandContext,
   worktrees: Worktree[],
 ): Promise<Worktree | undefined> {
@@ -236,14 +202,12 @@ async function selectWorktree(
   const buildItems = (): string[] => {
     const sorted = [...worktrees].sort((a, b) => {
       if (sort === "created") {
-        // Real creation time: use birthtimeMs (file creation time)
         try {
           return fs.statSync(b.path).birthtimeMs - fs.statSync(a.path).birthtimeMs;
         } catch {
           return 0;
         }
       }
-      // updated = mtime (last modification time)
       try {
         return fs.statSync(b.path).mtimeMs - fs.statSync(a.path).mtimeMs;
       } catch {
@@ -296,12 +260,14 @@ async function selectWorktree(
 // ─── Extension Entry ─────────────────────────────────────────────────────────
 
 export default function wtExtension(pi: ExtensionAPI): void {
-  // Fallback hook: if cwd is gone, surface a warning. Event handlers receive
-  // ExtensionContext (base), which does NOT expose switchSession — session
-  // switches are only available from ExtensionCommandContext (command handlers).
-  // Auto-switching from a session_start event is impossible per the API
-  // contract; just notify + set status so the user can run /wt to switch.
+  // LD13: assert pi version compatibility at session_start
   pi.on("session_start", (_event, ctx) => {
+    try {
+      assertPiVersion(getHostPiVersion());
+    } catch {
+      // Non-fatal: version mismatch doesn't block session
+    }
+
     if (isCwdGone(ctx.cwd)) {
       ctx.ui.notify(`wt: cwd gone (${ctx.cwd}) — run /wt to switch`, "warning");
       ctx.ui.setStatus(STATUS_KEY, "wt: ⚠ cwd gone — run /wt to switch");
@@ -330,16 +296,20 @@ export default function wtExtension(pi: ExtensionAPI): void {
     description: "Switch pi session to git worktree",
     getArgumentCompletions: (prefix: string) => {
       const worktrees = getWorktrees(process.cwd());
-      const matching = worktrees.filter((wt) =>
-        path.basename(wt.path).startsWith(prefix),
-      );
-      return matching.length > 0
-        ? matching.map((wt) => ({
-            value: path.basename(wt.path),
-            label: path.basename(wt.path),
-            description: wt.branch,
-          }))
-        : null;
+      const items = worktrees.map((wt) => ({
+        value: path.basename(wt.path),
+        label: path.basename(wt.path),
+        searchText: wt.branch,
+        description: wt.branch,
+      }));
+      const ranked = rankAndCap(items, prefix);
+      // rankAndCap keeps zero-score items (fuzzyScore returns 0, not -∞);
+      // post-filter to drop non-matches for real prefix filtering
+      const matching = ranked.filter((item) => {
+        const score = matchScore(item, prefix);
+        return typeof score === "number" ? score > 0 : true;
+      });
+      return matching.length > 0 ? matching : null;
     },
     handler: async (args, ctx) => {
       const trimmed = args.trim();
@@ -381,7 +351,7 @@ export default function wtExtension(pi: ExtensionAPI): void {
           ctx.ui.notify("No worktrees found", "info");
           return;
         }
-        const selected = await selectWorktree(ctx, worktrees);
+        const selected = await selectWorktreeTUI(ctx, worktrees);
         if (selected) {
           await forkSessionToWorktree(ctx, selected.path);
         }

@@ -2,6 +2,37 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
+import * as os from 'node:os';
+
+// ─── Mocks: pi-kit not yet installed ────────────────────────────────────────
+
+const kitMocks = vi.hoisted(() => ({
+  assertPiVersion: vi.fn(),
+  PI_KIT_VERSION: '0.1.0',
+  MINIMUM_PI_VERSION: '0.83.0',
+}));
+
+vi.mock('pi-kit', () => kitMocks);
+
+const rankingMocks = vi.hoisted(() => ({
+  matchScore: vi.fn(),
+  rankAndCap: vi.fn(),
+}));
+
+vi.mock('pi-kit/ranking', () => rankingMocks);
+
+vi.mock('pi-kit/picker', () => ({
+  rankedInputSelect: vi.fn(),
+  rankedSelect: vi.fn(),
+}));
+
+// Mock pi-coding-agent SDK (not installed in dev env)
+vi.mock('@earendil-works/pi-coding-agent', () => ({
+  SessionManager: {
+    forkFrom: vi.fn(),
+    create: vi.fn(),
+  },
+}));
 
 /**
  * TDD RED phase: failing tests for pi-extension-wt
@@ -183,6 +214,99 @@ branch refs/heads/feature
       // For now, just verify the function exists
       const { forkSessionToWorktree } = await import('./index.js');
       expect(typeof forkSessionToWorktree).toBe('function');
+    });
+  });
+
+  // ─── NEW RED tests: pi-kit integration ──────────────────────────────────────
+
+  describe('getArgumentCompletions — rankAndCap from pi-kit/ranking', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = os.tmpdir() + '/pi-wt-idx-' + Date.now();
+      mkdirSync(tmpDir, { recursive: true });
+      vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('uses rankAndCap for inline autocomplete', async () => {
+      // Create a real git repo with worktrees
+      const repoDir = join(tmpDir, 'repo');
+      mkdirSync(repoDir, { recursive: true });
+      execSync('git init -b main', { cwd: repoDir });
+      execSync('git config user.email t@t.com', { cwd: repoDir });
+      execSync('git config user.name T', { cwd: repoDir });
+      writeFileSync(join(repoDir, 'README.md'), '#');
+      execSync('git add . && git commit -m init', { cwd: repoDir });
+      execSync(`git worktree add ${join(repoDir, '.worktrees', 'wt-feat')} -b feat`, { cwd: repoDir });
+
+      const origCwd = process.cwd();
+      process.chdir(repoDir);
+
+      try {
+        vi.resetModules();
+        const { default: wtExtension } = await import('./index.js');
+
+        const commands: Record<string, any> = {};
+        const fakePi: any = {
+          on: vi.fn(),
+          registerCommand: (name: string, opts: any) => { commands[name] = opts; },
+        };
+
+        wtExtension(fakePi);
+
+        // rankAndCap should be called when completions are requested
+        rankingMocks.rankAndCap.mockReturnValue([
+          { value: 'wt-feat', label: 'wt-feat', description: 'feat' },
+        ]);
+
+        commands.wt.getArgumentCompletions('wt-f');
+
+        expect(rankingMocks.rankAndCap).toHaveBeenCalled();
+      } finally {
+        process.chdir(origCwd);
+      }
+    });
+  });
+
+  describe('assertPiVersion — session_start runtime guard (LD13)', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('calls assertPiVersion at session_start', async () => {
+      vi.resetModules();
+      const { default: wtExtension } = await import('./index.js');
+
+      const eventHandlers: Record<string, Function[]> = {};
+      const fakePi: any = {
+        on: (event: string, handler: Function) => {
+          (eventHandlers[event] ||= []).push(handler);
+        },
+        registerCommand: vi.fn(),
+      };
+
+      wtExtension(fakePi);
+
+      // Verify session_start handler exists
+      const handlers = eventHandlers['session_start'] || [];
+      expect(handlers.length).toBeGreaterThan(0);
+
+      // Invoke session_start with a valid cwd
+      const fakeCtx = {
+        cwd: os.tmpdir(),
+        ui: { notify: vi.fn(), setStatus: vi.fn() },
+      };
+
+      for (const h of handlers) {
+        await h({}, fakeCtx);
+      }
+
+      // assertPiVersion should have been called
+      expect(kitMocks.assertPiVersion).toHaveBeenCalled();
     });
   });
 });
