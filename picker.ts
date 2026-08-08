@@ -6,7 +6,8 @@
  */
 
 import * as path from "node:path";
-import { rankedInputSelect, type PickerUI, type RankableItem } from "pi-kit/picker";
+import { rankedInputSelect, type PickerUI } from "pi-kit/picker";
+import type { RankableItem } from "pi-kit/ranking";
 import type { Worktree, WtHistoryEntry } from "./store.js";
 import { computeScore } from "./history.js";
 
