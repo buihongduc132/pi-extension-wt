@@ -1115,5 +1115,83 @@ branch refs/heads/second
         cwdSpy.mockRestore();
       }
     });
+
+    // -----------------------------------------------------------------------
+    // Bug: empty prefix drops ALL worktrees because matchScore(item, "") returns
+    // baseScore (=0) and the post-filter `score > 0` rejects everything.
+    // -----------------------------------------------------------------------
+    it('returns all worktrees when prefix is empty', async () => {
+      const repo = uniqueTmp('compl-repo-empty');
+      createdDirs.push(repo);
+      makeGitRepo(repo);
+      addWorktree(repo, '.wt/wt-feat', 'wt-feat');
+      addWorktree(repo, '.wt/wt-fix', 'wt-fix');
+
+      const { fakePi, piCalls } = makeHarness();
+      const { default: wtExtension } = await import('./index.js');
+      wtExtension(fakePi);
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(repo);
+      try {
+        const res = piCalls.commands['wt'].getArgumentCompletions('');
+        // BUG: current code returns null because matchScore(item, "") = 0
+        // and the post-filter `score > 0` drops all items.
+        // Expected: non-null array with all worktree basenames.
+        expect(res).not.toBeNull();
+        expect(Array.isArray(res)).toBe(true);
+        const values = (res as any[]).map((i) => i.value);
+        expect(values).toContain('wt-feat');
+        expect(values).toContain('wt-fix');
+        // Should include the main worktree too (basename of repo dir)
+        expect(values.length).toBeGreaterThanOrEqual(2);
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    });
+
+    it('returns matching worktrees for non-empty prefix', async () => {
+      const repo = uniqueTmp('compl-repo-nonempty');
+      createdDirs.push(repo);
+      makeGitRepo(repo);
+      addWorktree(repo, '.wt/wt-feat', 'wt-feat');
+      addWorktree(repo, '.wt/wt-fix', 'wt-fix');
+
+      const { fakePi, piCalls } = makeHarness();
+      const { default: wtExtension } = await import('./index.js');
+      wtExtension(fakePi);
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(repo);
+      try {
+        const res = piCalls.commands['wt'].getArgumentCompletions('wt-f');
+        expect(res).not.toBeNull();
+        expect(Array.isArray(res)).toBe(true);
+        const values = (res as any[]).map((i) => i.value);
+        // Both wt-feat and wt-fix start with "wt-f"
+        expect(values).toContain('wt-feat');
+        expect(values).toContain('wt-fix');
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    });
+
+    it('returns null when prefix matches no worktrees', async () => {
+      const repo = uniqueTmp('compl-repo-nomatch2');
+      createdDirs.push(repo);
+      makeGitRepo(repo);
+      addWorktree(repo, '.wt/wt-feat', 'wt-feat');
+      addWorktree(repo, '.wt/wt-fix', 'wt-fix');
+
+      const { fakePi, piCalls } = makeHarness();
+      const { default: wtExtension } = await import('./index.js');
+      wtExtension(fakePi);
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(repo);
+      try {
+        const res = piCalls.commands['wt'].getArgumentCompletions('zzz');
+        expect(res).toBeNull();
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    });
   });
 });

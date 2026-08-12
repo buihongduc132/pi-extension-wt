@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { execSync } from "node:child_process";
 import { SessionManager, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { assertPiVersion, PI_KIT_VERSION } from "pi-kit";
-import { rankAndCap, matchScore } from "pi-kit/ranking";
+import { rankAndCap } from "pi-kit/ranking";
 
 // ─── Module re-exports ───────────────────────────────────────────────────────
 
@@ -233,6 +233,7 @@ export default function wtExtension(pi: ExtensionAPI): void {
     description: "Switch pi session to git worktree",
     getArgumentCompletions: (prefix: string) => {
       const worktrees = getWorktrees(process.cwd());
+      if (worktrees.length === 0) return null;
       const items = worktrees.map((wt) => ({
         value: path.basename(wt.path),
         label: path.basename(wt.path),
@@ -240,13 +241,7 @@ export default function wtExtension(pi: ExtensionAPI): void {
         description: wt.branch,
       }));
       const ranked = rankAndCap(items, prefix);
-      // rankAndCap keeps zero-score items (fuzzyScore returns 0, not -∞);
-      // post-filter to drop non-matches for real prefix filtering
-      const matching = ranked.filter((item) => {
-        const score = matchScore(item, prefix);
-        return typeof score === "number" ? score > 0 : true;
-      });
-      return matching.length > 0 ? matching : null;
+      return ranked.length > 0 ? ranked : null;
     },
     handler: async (args, ctx) => {
       const trimmed = args.trim();
