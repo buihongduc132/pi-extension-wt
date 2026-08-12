@@ -1,6 +1,6 @@
 {
   "name": "pi-extension-wt",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Pi extension that switches pi session to git worktree (like cd but for worktrees)",
   "main": "index.ts",
   "type": "module",
@@ -49,7 +49,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "dependencies": {
-    "pi-kit": "github:buihongduc132/pi-kit#v0.1.3"
+    "pi-kit": "github:buihongduc132/pi-kit#v0.1.4"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.83.0",
