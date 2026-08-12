@@ -126,6 +126,8 @@ interface FakeCtxOptions {
   selectQueue?: (string | undefined)[];
   /** Explicit select impl overrides the queue. */
   selectImpl?: Selector;
+  /** Input impl for pi-kit/picker rankedInputSelect (2-stage flow). */
+  inputImpl?: () => Promise<string | undefined>;
 }
 
 /**
@@ -177,6 +179,7 @@ function makeHarness() {
         notify,
         setStatus,
         select: selectImpl,
+        input: opts.inputImpl ?? (async () => '' as string | undefined),
       },
       sessionManager: {
         getSessionFile: () => opts.currentSessionFile ?? null,
@@ -730,38 +733,6 @@ branch refs/heads/second
       void wts;
     });
 
-    it('"s" toggles sort then re-prompts and persists the new sort', async () => {
-      const tmp = uniqueTmp('picker-toggle-cfg');
-      createdDirs.push(tmp);
-      process.env.PI_WT_CONFIG_PATH = path.join(tmp, 'wt.json');
-
-      const { repo } = await setupPicker([
-        { rel: '.wt/feat-c', branch: 'feat-c' },
-        { rel: '.wt/feat-d', branch: 'feat-d' },
-      ]);
-      const { fakePi, piCalls, makeCtx } = makeHarness();
-      const { default: wtExtension } = await import('./index.js');
-      wtExtension(fakePi);
-
-      // First select returns 's' (toggle), then returns first item.
-      const { ctx, switchCalls } = makeCtx({
-        cwd: repo,
-        hasUI: true,
-        selectImpl: async (_t, items) => {
-          // consume 's' once then a real item
-          (ctx as any).__toggleDone = ((ctx as any).__toggleDone ?? 0) + 1;
-          return (ctx as any).__toggleDone === 1 ? 's' : items[0];
-        },
-      });
-      await piCalls.commands['wt'].handler('', ctx);
-
-      // Should have forked after toggle.
-      expect(switchCalls).toHaveLength(1);
-
-      // persistSort should have written "updated" to the config.
-      const cfg = JSON.parse(fs.readFileSync(process.env.PI_WT_CONFIG_PATH!, 'utf8'));
-      expect(cfg.sort).toBe('updated');
-    });
 
     it('selectWorktree returns undefined when worktrees list is empty', async () => {
       // Empty worktrees early-return inside selectWorktree. Drive by passing an
@@ -815,69 +786,7 @@ branch refs/heads/second
       void w1;
     });
 
-    it('sort comparators fall back to 0 in "updated" sort after toggle when a dir is missing', async () => {
-      const repo = uniqueTmp('picker-missing-updated');
-      createdDirs.push(repo);
-      makeGitRepo(repo);
-      const w1 = addWorktree(repo, '.wt/keep2', 'keep2');
-      const w2 = addWorktree(repo, '.wt/gone2', 'gone2');
-      // Touch keep2 so its mtime differs; remove gone2 so statSync throws.
-      fs.writeFileSync(path.join(w1, 'touch'), 'x');
-      fs.rmSync(w2, { recursive: true, force: true });
 
-      const tmp = uniqueTmp('picker-missing-updated-cfg');
-      createdDirs.push(tmp);
-      process.env.PI_WT_CONFIG_PATH = path.join(tmp, 'wt.json');
-
-      const { fakePi, piCalls, makeCtx } = makeHarness();
-      const { default: wtExtension } = await import('./index.js');
-      wtExtension(fakePi);
-
-      let call = 0;
-      const { ctx, switchCalls } = makeCtx({
-        cwd: repo,
-        hasUI: true,
-        selectImpl: async (_t, items) => {
-          call++;
-          // First prompt: toggle to "updated" sort (exercises updated-sort
-          // buildItems comparator with a missing path). Then pick keep2.
-          if (call === 1) return 's';
-          return items.find((i) => i.includes('keep2')) ?? items[0];
-        },
-      });
-      await piCalls.commands['wt'].handler('', ctx);
-      expect(switchCalls).toHaveLength(1);
-    });
-
-    it('empty-string selection also toggles sort (selected === "" branch)', async () => {
-      const repo = uniqueTmp('picker-emptytoggle');
-      createdDirs.push(repo);
-      makeGitRepo(repo);
-      addWorktree(repo, '.wt/et1', 'et1');
-      addWorktree(repo, '.wt/et2', 'et2');
-
-      const tmp = uniqueTmp('picker-emptytoggle-cfg');
-      createdDirs.push(tmp);
-      process.env.PI_WT_CONFIG_PATH = path.join(tmp, 'wt.json');
-
-      const { fakePi, piCalls, makeCtx } = makeHarness();
-      const { default: wtExtension } = await import('./index.js');
-      wtExtension(fakePi);
-
-      let call = 0;
-      const { ctx, switchCalls } = makeCtx({
-        cwd: repo,
-        hasUI: true,
-        selectImpl: async (_t, items) => {
-          call++;
-          // First prompt returns "" -> toggles; then pick a real item.
-          if (call === 1) return '';
-          return items[0];
-        },
-      });
-      await piCalls.commands['wt'].handler('', ctx);
-      expect(switchCalls).toHaveLength(1);
-    });
 
     it('returns undefined when the selected item is not in the item list (index < 0)', async () => {
       const repo = uniqueTmp('picker-badindex');
@@ -1193,6 +1102,84 @@ branch refs/heads/second
       createdDirs.push(repo);
       makeGitRepo(repo);
       addWorktree(repo, '.wt/alpha', 'alpha');
+
+      const { fakePi, piCalls } = makeHarness();
+      const { default: wtExtension } = await import('./index.js');
+      wtExtension(fakePi);
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(repo);
+      try {
+        const res = piCalls.commands['wt'].getArgumentCompletions('zzz');
+        expect(res).toBeNull();
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // Bug: empty prefix drops ALL worktrees because matchScore(item, "") returns
+    // baseScore (=0) and the post-filter `score > 0` rejects everything.
+    // -----------------------------------------------------------------------
+    it('returns all worktrees when prefix is empty', async () => {
+      const repo = uniqueTmp('compl-repo-empty');
+      createdDirs.push(repo);
+      makeGitRepo(repo);
+      addWorktree(repo, '.wt/wt-feat', 'wt-feat');
+      addWorktree(repo, '.wt/wt-fix', 'wt-fix');
+
+      const { fakePi, piCalls } = makeHarness();
+      const { default: wtExtension } = await import('./index.js');
+      wtExtension(fakePi);
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(repo);
+      try {
+        const res = piCalls.commands['wt'].getArgumentCompletions('');
+        // BUG: current code returns null because matchScore(item, "") = 0
+        // and the post-filter `score > 0` drops all items.
+        // Expected: non-null array with all worktree basenames.
+        expect(res).not.toBeNull();
+        expect(Array.isArray(res)).toBe(true);
+        const values = (res as any[]).map((i) => i.value);
+        expect(values).toContain('wt-feat');
+        expect(values).toContain('wt-fix');
+        // Should include the main worktree too (basename of repo dir)
+        expect(values.length).toBeGreaterThanOrEqual(2);
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    });
+
+    it('returns matching worktrees for non-empty prefix', async () => {
+      const repo = uniqueTmp('compl-repo-nonempty');
+      createdDirs.push(repo);
+      makeGitRepo(repo);
+      addWorktree(repo, '.wt/wt-feat', 'wt-feat');
+      addWorktree(repo, '.wt/wt-fix', 'wt-fix');
+
+      const { fakePi, piCalls } = makeHarness();
+      const { default: wtExtension } = await import('./index.js');
+      wtExtension(fakePi);
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(repo);
+      try {
+        const res = piCalls.commands['wt'].getArgumentCompletions('wt-f');
+        expect(res).not.toBeNull();
+        expect(Array.isArray(res)).toBe(true);
+        const values = (res as any[]).map((i) => i.value);
+        // Both wt-feat and wt-fix start with "wt-f"
+        expect(values).toContain('wt-feat');
+        expect(values).toContain('wt-fix');
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    });
+
+    it('returns null when prefix matches no worktrees', async () => {
+      const repo = uniqueTmp('compl-repo-nomatch2');
+      createdDirs.push(repo);
+      makeGitRepo(repo);
+      addWorktree(repo, '.wt/wt-feat', 'wt-feat');
+      addWorktree(repo, '.wt/wt-fix', 'wt-fix');
 
       const { fakePi, piCalls } = makeHarness();
       const { default: wtExtension } = await import('./index.js');
